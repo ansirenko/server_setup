@@ -4,10 +4,18 @@ set -euo pipefail
 # ============================================================================
 # Server Setup Script for Ubuntu 22.04 / 24.04
 # Run as root on a fresh server. Safe to run over SSH — won't drop connection.
+# Idempotent — safe to run multiple times.
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="/var/log/server-setup.log"
+
+# Detect SSH service name (Ubuntu 22.04+ uses 'ssh', older uses 'sshd')
+if systemctl list-unit-files ssh.service &>/dev/null; then
+    SSH_SERVICE="ssh"
+else
+    SSH_SERVICE="sshd"
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -80,8 +88,9 @@ fi
 if ! command -v docker &>/dev/null; then
     log "Installing Docker..."
     install -m 0755 -d /etc/apt/keyrings
+    # --yes to overwrite existing keyring file on re-run
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-        gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null
+        gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg 2>/dev/null
     chmod a+r /etc/apt/keyrings/docker.gpg
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
         https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
@@ -231,7 +240,10 @@ log "Unattended upgrades enabled (security patches, no auto-reboot)"
 log "Configuring SSH with 2FA..."
 
 SSHD_CONFIG="/etc/ssh/sshd_config"
-cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.$(date +%s)"
+SSHD_BACKUP="${SSHD_CONFIG}.bak.before-setup"
+
+# Only create backup if our backup doesn't exist yet (first run)
+[[ ! -f "$SSHD_BACKUP" ]] && cp "$SSHD_CONFIG" "$SSHD_BACKUP"
 
 # Apply settings idempotently
 apply_sshd_setting() {
@@ -245,9 +257,12 @@ apply_sshd_setting() {
     fi
 }
 
+# Remove legacy ChallengeResponseAuthentication (renamed to KbdInteractiveAuthentication in OpenSSH 8.7+)
+# Having both causes sshd -t validation to fail on Ubuntu 22.04+
+sed -i '/^\s*#\?\s*ChallengeResponseAuthentication\s/d' "$SSHD_CONFIG"
+
 apply_sshd_setting "PermitRootLogin" "prohibit-password"
 apply_sshd_setting "PasswordAuthentication" "no"
-apply_sshd_setting "ChallengeResponseAuthentication" "yes"
 apply_sshd_setting "KbdInteractiveAuthentication" "yes"
 apply_sshd_setting "UsePAM" "yes"
 apply_sshd_setting "AuthenticationMethods" "publickey,keyboard-interactive"
@@ -265,14 +280,14 @@ if ! grep -q "pam_google_authenticator.so" "$PAM_SSHD"; then
 fi
 
 # Validate sshd config before restarting
-if sshd -t 2>/dev/null; then
-    systemctl restart sshd
+if sshd -t 2>&1; then
+    systemctl restart "$SSH_SERVICE"
     log "SSH hardened and restarted successfully"
 else
     warn "sshd config validation failed! Restoring backup..."
-    cp "${SSHD_CONFIG}.bak."* "$SSHD_CONFIG" 2>/dev/null
-    systemctl restart sshd
-    err "SSH config was invalid. Backup restored. Check manually."
+    cp "$SSHD_BACKUP" "$SSHD_CONFIG"
+    systemctl restart "$SSH_SERVICE"
+    err "SSH config was invalid. Backup restored. Check /var/log/server-setup.log"
 fi
 
 # ── 9. Install add-ssh-user command ──────────────────────────────────────
