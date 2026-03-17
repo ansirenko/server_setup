@@ -279,16 +279,21 @@ if ! grep -q "pam_google_authenticator.so" "$PAM_SSHD"; then
     log "PAM configured for Google Authenticator (nullok — 2FA optional until user sets it up)"
 fi
 
+# Ensure privilege separation directory exists (required by sshd -t)
+mkdir -p /run/sshd
+
 # Validate sshd config before restarting
-if sshd -t 2>&1; then
-    systemctl restart "$SSH_SERVICE"
-    log "SSH hardened and restarted successfully"
-else
-    warn "sshd config validation failed! Restoring backup..."
+SSHD_TEST_OUTPUT=$(sshd -t 2>&1) || {
+    warn "sshd config validation failed!"
+    warn "Error: ${SSHD_TEST_OUTPUT}"
+    warn "Restoring backup..."
     cp "$SSHD_BACKUP" "$SSHD_CONFIG"
     systemctl restart "$SSH_SERVICE"
-    err "SSH config was invalid. Backup restored. Check /var/log/server-setup.log"
-fi
+    err "SSH config was invalid. Backup restored. Fix the issue and re-run."
+}
+
+systemctl restart "$SSH_SERVICE"
+log "SSH hardened and restarted successfully"
 
 # ── 9. Install add-ssh-user command ──────────────────────────────────────
 log "Installing add-ssh-user command..."
