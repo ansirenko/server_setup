@@ -17,9 +17,9 @@ Bash-скрипт для быстрой настройки свежего Ubuntu
 
 ```bash
 # На новом сервере под root:
-git clone https://github.com/your-user/server_setup.git
+apt-get update && apt-get install -y git
+git clone https://github.com/ansirenko/server_setup.git
 cd server_setup
-chmod +x setup.sh add-ssh-user.sh
 bash setup.sh
 ```
 
@@ -54,7 +54,11 @@ add-ssh-user myuser 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@laptop'
 ssh myuser@server-ip
 ```
 
-При входе потребуется SSH-ключ + код из приложения-аутентификатора.
+При входе:
+1. SSH-ключ проверяется автоматически
+2. Вас спросят `Verification code:` — введите 6-значный код из приложения-аутентификатора
+
+> **Важно:** Не закрывайте текущую root-сессию, пока не убедитесь что новый юзер может зайти!
 
 ### 4. (Опционально) Убрать nullok
 
@@ -103,6 +107,34 @@ server_setup/
 - **SSH**: 3 неудачных попытки за 10 минут → бан на 2 часа
 - Просмотр банов: `fail2ban-client status sshd`
 - Разбанить IP: `fail2ban-client set sshd unbanip 1.2.3.4`
+
+## Экстренное восстановление доступа
+
+Если заблокировали себя (fail2ban забанил IP или SSH не пускает):
+
+```bash
+# 1. Зайдите через консоль хостинга (VNC/web-console)
+
+# 2. Разбанить IP в fail2ban:
+fail2ban-client set sshd unbanip YOUR_IP
+
+# 3. Посмотреть кто забанен:
+fail2ban-client status sshd
+
+# 4. Если SSH совсем не работает — откатить конфиг:
+cp /etc/ssh/sshd_config.bak.before-setup /etc/ssh/sshd_config
+systemctl restart ssh
+
+# 5. Перезапустить скрипт заново:
+cd /root/server_setup && bash setup.sh
+```
+
+## Повторный запуск
+
+Скрипт **идемпотентный** — безопасно запускать повторно. Он:
+- Пропускает уже установленные компоненты (Go, Docker, Oh My Zsh)
+- Перезаписывает конфиги (UFW, fail2ban, sshd) из чистого состояния
+- Валидирует sshd_config перед перезапуском (откатит если невалидный)
 
 ## Требования
 

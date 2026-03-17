@@ -245,21 +245,33 @@ SSHD_BACKUP="${SSHD_CONFIG}.bak.before-setup"
 # Only create backup if our backup doesn't exist yet (first run)
 [[ ! -f "$SSHD_BACKUP" ]] && cp "$SSHD_CONFIG" "$SSHD_BACKUP"
 
-# Apply settings idempotently
+# Apply settings idempotently (handles duplicates, commented lines, and re-runs)
 apply_sshd_setting() {
     local key="$1" value="$2"
-    if grep -qE "^\s*${key}\s+" "$SSHD_CONFIG"; then
-        sed -i "s|^\s*${key}\s.*|${key} ${value}|" "$SSHD_CONFIG"
-    elif grep -qE "^\s*#\s*${key}\s+" "$SSHD_CONFIG"; then
-        sed -i "s|^\s*#\s*${key}\s.*|${key} ${value}|" "$SSHD_CONFIG"
-    else
-        echo "${key} ${value}" >> "$SSHD_CONFIG"
-    fi
+
+    # Remove ALL existing lines for this key (commented or not) to avoid duplicates
+    sed -i "/^\s*#\?\s*${key}\s/d" "$SSHD_CONFIG"
+
+    # Append the desired setting
+    echo "${key} ${value}" >> "$SSHD_CONFIG"
 }
 
 # Remove legacy ChallengeResponseAuthentication (renamed to KbdInteractiveAuthentication in OpenSSH 8.7+)
 # Having both causes sshd -t validation to fail on Ubuntu 22.04+
 sed -i '/^\s*#\?\s*ChallengeResponseAuthentication\s/d' "$SSHD_CONFIG"
+
+# Ubuntu 24.04 ships drop-in configs in /etc/ssh/sshd_config.d/ that can override our settings.
+# Disable the default cloud-init config which may set PasswordAuthentication yes
+if [[ -d /etc/ssh/sshd_config.d ]]; then
+    for drop_in in /etc/ssh/sshd_config.d/*.conf; do
+        [[ -f "$drop_in" ]] || continue
+        # Comment out conflicting settings in drop-in files
+        if grep -qE '^\s*(PasswordAuthentication|KbdInteractiveAuthentication|AuthenticationMethods)\s' "$drop_in" 2>/dev/null; then
+            sed -i 's|^\(\s*PasswordAuthentication\s\)|# \1|; s|^\(\s*KbdInteractiveAuthentication\s\)|# \1|; s|^\(\s*AuthenticationMethods\s\)|# \1|' "$drop_in"
+            warn "Disabled conflicting SSH settings in drop-in: $(basename "$drop_in")"
+        fi
+    done
+fi
 
 apply_sshd_setting "PermitRootLogin" "prohibit-password"
 apply_sshd_setting "PasswordAuthentication" "no"
@@ -273,27 +285,50 @@ apply_sshd_setting "ClientAliveInterval" "300"
 apply_sshd_setting "ClientAliveCountMax" "2"
 
 # Configure PAM for Google Authenticator
+# The goal: keyboard-interactive should ONLY ask for TOTP code, NOT system password.
+# By default, /etc/pam.d/sshd includes @include common-auth which prompts for password.
+# We comment it out so PAM only uses google-authenticator for the keyboard-interactive step.
 PAM_SSHD="/etc/pam.d/sshd"
+
+# Comment out @include common-auth (prevents "Password:" prompt)
+if grep -q '^\s*@include\s\+common-auth' "$PAM_SSHD"; then
+    sed -i 's|^\(\s*@include\s\+common-auth\)|# \1  # Disabled by server-setup (pubkey handles auth, TOTP handles 2FA)|' "$PAM_SSHD"
+    log "Disabled @include common-auth in PAM (no password prompt for SSH)"
+fi
+
+# Add google-authenticator PAM module if not already present
 if ! grep -q "pam_google_authenticator.so" "$PAM_SSHD"; then
+    # Add after the comment block at the top, before other auth rules
+    echo "" >> "$PAM_SSHD"
+    echo "# Google Authenticator — TOTP 2FA (added by server-setup)" >> "$PAM_SSHD"
     echo "auth required pam_google_authenticator.so nullok" >> "$PAM_SSHD"
     log "PAM configured for Google Authenticator (nullok — 2FA optional until user sets it up)"
+else
+    log "PAM Google Authenticator already configured"
 fi
 
 # Ensure privilege separation directory exists (required by sshd -t)
 mkdir -p /run/sshd
 
 # Validate sshd config before restarting
-SSHD_TEST_OUTPUT=$(sshd -t 2>&1) || {
-    warn "sshd config validation failed!"
-    warn "Error: ${SSHD_TEST_OUTPUT}"
+if SSHD_TEST_OUTPUT=$(sshd -t 2>&1); then
+    systemctl restart "$SSH_SERVICE"
+    log "SSH hardened and restarted successfully"
+else
+    echo ""
+    warn "═══ sshd config validation failed! ═══"
+    warn "Error output from 'sshd -t':"
+    echo "${SSHD_TEST_OUTPUT}" | tee -a "$LOG_FILE"
+    warn "═══════════════════════════════════════"
     warn "Restoring backup..."
     cp "$SSHD_BACKUP" "$SSHD_CONFIG"
-    systemctl restart "$SSH_SERVICE"
-    err "SSH config was invalid. Backup restored. Fix the issue and re-run."
-}
-
-systemctl restart "$SSH_SERVICE"
-log "SSH hardened and restarted successfully"
+    if systemctl restart "$SSH_SERVICE"; then
+        warn "Backup restored and SSH restarted. Fix the issue and re-run."
+    else
+        warn "Backup restored but SSH failed to restart. Check: systemctl status ${SSH_SERVICE}"
+    fi
+    exit 1
+fi
 
 # ── 9. Install add-ssh-user command ──────────────────────────────────────
 log "Installing add-ssh-user command..."

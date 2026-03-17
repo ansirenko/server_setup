@@ -79,17 +79,17 @@ echo -e "${GREEN}[+]${NC} SSH key installed"
 USER_HOME="/home/${USERNAME}"
 if [[ ! -d "${USER_HOME}/.oh-my-zsh" ]]; then
     echo -e "${GREEN}[+]${NC} Installing Oh My Zsh..."
-    # Run in user's home dir to avoid "can't cd to /root" errors
-    sudo -u "$USERNAME" -H bash -c \
-        'cd ~ && RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+    # All commands run from user's home dir to avoid "can't cd to /root" errors
+    sudo -u "$USERNAME" -i bash -c \
+        'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
 
     ZSH_CUSTOM="${USER_HOME}/.oh-my-zsh/custom"
 
-    sudo -u "$USERNAME" -H git clone --depth=1 \
+    sudo -u "$USERNAME" -i git clone --depth=1 \
         https://github.com/zsh-users/zsh-syntax-highlighting.git \
         "${ZSH_CUSTOM}/plugins/zsh-syntax-highlighting" 2>/dev/null || true
 
-    sudo -u "$USERNAME" -H git clone --depth=1 \
+    sudo -u "$USERNAME" -i git clone --depth=1 \
         https://github.com/zsh-users/zsh-autosuggestions.git \
         "${ZSH_CUSTOM}/plugins/zsh-autosuggestions" 2>/dev/null || true
 
@@ -136,9 +136,9 @@ echo ""
 
 # Generate Google Authenticator config
 # -t: TOTP, -d: disallow reuse, -f: force overwrite, -r 3 -R 30: rate limit, -w 3: window size
-sudo -u "$USERNAME" -H google-authenticator \
-    -t -d -f -r 3 -R 30 -w 3 \
-    -s "/home/${USERNAME}/.google_authenticator"
+# Run from user's home dir to avoid "can't cd to /root" errors
+sudo -u "$USERNAME" -H bash -c \
+    "cd ~ && google-authenticator -t -d -f -r 3 -R 30 -w 3 -s ~/.google_authenticator"
 
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
