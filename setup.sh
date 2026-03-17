@@ -280,7 +280,7 @@ apply_sshd_setting "UsePAM" "yes"
 apply_sshd_setting "AuthenticationMethods" "publickey,keyboard-interactive"
 apply_sshd_setting "PubkeyAuthentication" "yes"
 apply_sshd_setting "X11Forwarding" "no"
-apply_sshd_setting "MaxAuthTries" "3"
+apply_sshd_setting "MaxAuthTries" "6"
 apply_sshd_setting "ClientAliveInterval" "300"
 apply_sshd_setting "ClientAliveCountMax" "2"
 
