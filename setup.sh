@@ -116,18 +116,18 @@ setup_zsh_for_user() {
 
     log "Setting up Zsh for ${target_user}..."
 
-    # Install oh-my-zsh
-    sudo -u "$target_user" sh -c \
-        'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+    # Install oh-my-zsh (run in user's home dir to avoid permission errors)
+    sudo -u "$target_user" -H bash -c \
+        'cd ~ && RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
 
     local ZSH_CUSTOM="${target_home}/.oh-my-zsh/custom"
 
     # Plugins
-    sudo -u "$target_user" git clone --depth=1 \
+    sudo -u "$target_user" -H git clone --depth=1 \
         https://github.com/zsh-users/zsh-syntax-highlighting.git \
         "${ZSH_CUSTOM}/plugins/zsh-syntax-highlighting" 2>/dev/null || true
 
-    sudo -u "$target_user" git clone --depth=1 \
+    sudo -u "$target_user" -H git clone --depth=1 \
         https://github.com/zsh-users/zsh-autosuggestions.git \
         "${ZSH_CUSTOM}/plugins/zsh-autosuggestions" 2>/dev/null || true
 
