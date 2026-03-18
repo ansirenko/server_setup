@@ -100,6 +100,7 @@ ZSH_THEME="robbyrussell"
 
 plugins=(
     git
+    ssh-agent
     zsh-syntax-highlighting
     zsh-autosuggestions
     docker
@@ -108,6 +109,10 @@ plugins=(
     history
     sudo
 )
+
+# ssh-agent: auto-start, forward agent, lazy load
+zstyle :omz:plugins:ssh-agent agent-forwarding on
+zstyle :omz:plugins:ssh-agent lazy yes
 
 source $ZSH/oh-my-zsh.sh
 
