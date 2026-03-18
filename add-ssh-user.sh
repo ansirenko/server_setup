@@ -98,6 +98,10 @@ export ZSH="$HOME/.oh-my-zsh"
 
 ZSH_THEME="robbyrussell"
 
+# ssh-agent: auto-start, forward agent, lazy load
+zstyle :omz:plugins:ssh-agent agent-forwarding on
+zstyle :omz:plugins:ssh-agent lazy yes
+
 plugins=(
     git
     ssh-agent
@@ -109,10 +113,6 @@ plugins=(
     history
     sudo
 )
-
-# ssh-agent: auto-start, forward agent, lazy load
-zstyle :omz:plugins:ssh-agent agent-forwarding on
-zstyle :omz:plugins:ssh-agent lazy yes
 
 source $ZSH/oh-my-zsh.sh
 

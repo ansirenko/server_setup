@@ -104,38 +104,20 @@ else
 fi
 
 # ── 4. Zsh + Oh My Zsh ───────────────────────────────────────────────────
-setup_zsh_for_user() {
+
+# Write .zshrc for a user (always overwrites — single source of truth)
+write_zshrc() {
     local target_user="$1"
-    local target_home
-    target_home="$(eval echo "~${target_user}")"
+    local target_home="$2"
 
-    if [[ -d "${target_home}/.oh-my-zsh" ]]; then
-        warn "Oh My Zsh already installed for ${target_user}, skipping"
-        return
-    fi
-
-    log "Setting up Zsh for ${target_user}..."
-
-    # Install oh-my-zsh (run in user's home dir to avoid permission errors)
-    sudo -u "$target_user" -H bash -c \
-        'cd ~ && RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
-
-    local ZSH_CUSTOM="${target_home}/.oh-my-zsh/custom"
-
-    # Plugins
-    sudo -u "$target_user" -H git clone --depth=1 \
-        https://github.com/zsh-users/zsh-syntax-highlighting.git \
-        "${ZSH_CUSTOM}/plugins/zsh-syntax-highlighting" 2>/dev/null || true
-
-    sudo -u "$target_user" -H git clone --depth=1 \
-        https://github.com/zsh-users/zsh-autosuggestions.git \
-        "${ZSH_CUSTOM}/plugins/zsh-autosuggestions" 2>/dev/null || true
-
-    # Configure .zshrc
     cat > "${target_home}/.zshrc" << 'ZSHEOF'
 export ZSH="$HOME/.oh-my-zsh"
 
 ZSH_THEME="robbyrussell"
+
+# ssh-agent: auto-start, forward agent, lazy load
+zstyle :omz:plugins:ssh-agent agent-forwarding on
+zstyle :omz:plugins:ssh-agent lazy yes
 
 plugins=(
     git
@@ -148,10 +130,6 @@ plugins=(
     history
     sudo
 )
-
-# ssh-agent: auto-start, forward agent, lazy load
-zstyle :omz:plugins:ssh-agent agent-forwarding on
-zstyle :omz:plugins:ssh-agent lazy yes
 
 source $ZSH/oh-my-zsh.sh
 
@@ -172,13 +150,49 @@ alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
 ZSHEOF
 
     chown "$target_user":"$target_user" "${target_home}/.zshrc"
+}
 
-    # Set zsh as default shell
-    chsh -s "$(which zsh)" "$target_user"
+# Install oh-my-zsh + plugins for a user (skips if already installed)
+install_omz_for_user() {
+    local target_user="$1"
+    local target_home
+    target_home="$(eval echo "~${target_user}")"
+
+    if [[ ! -d "${target_home}/.oh-my-zsh" ]]; then
+        log "Installing Oh My Zsh for ${target_user}..."
+        sudo -u "$target_user" -i bash -c \
+            'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+
+        local ZSH_CUSTOM="${target_home}/.oh-my-zsh/custom"
+
+        sudo -u "$target_user" -i git clone --depth=1 \
+            https://github.com/zsh-users/zsh-syntax-highlighting.git \
+            "${ZSH_CUSTOM}/plugins/zsh-syntax-highlighting" 2>/dev/null || true
+
+        sudo -u "$target_user" -i git clone --depth=1 \
+            https://github.com/zsh-users/zsh-autosuggestions.git \
+            "${ZSH_CUSTOM}/plugins/zsh-autosuggestions" 2>/dev/null || true
+
+        # Set zsh as default shell
+        chsh -s "$(which zsh)" "$target_user"
+    fi
+
+    # Always update .zshrc (ensures config stays in sync on re-runs)
+    write_zshrc "$target_user" "$target_home"
 }
 
 # Setup zsh for root
-setup_zsh_for_user root
+install_omz_for_user root
+
+# Update .zshrc for ALL existing users with oh-my-zsh (idempotent config sync)
+log "Syncing .zshrc for all users..."
+for user_home in /home/*; do
+    [[ -d "${user_home}/.oh-my-zsh" ]] || continue
+    username="$(basename "$user_home")"
+    id "$username" &>/dev/null || continue
+    write_zshrc "$username" "$user_home"
+    log "Updated .zshrc for ${username}"
+done
 
 # ── 5. UFW Firewall ──────────────────────────────────────────────────────
 log "Configuring UFW firewall..."
